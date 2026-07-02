@@ -1,0 +1,26 @@
+{$DOMAIN:localhost} {
+
+    # Presentation files — served directly with byte-range support for seekable PDFs
+    handle /files/* {
+        root * /srv/files
+        file_server {
+            browse
+        }
+        header Cache-Control "public, max-age=86400"
+    }
+
+    # API proxy
+    handle /api/* {
+        reverse_proxy api:8000
+    }
+
+    # Health check passthrough
+    handle /health {
+        reverse_proxy api:8000
+    }
+
+    # Frontend SPA
+    handle {
+        reverse_proxy frontend:80
+    }
+}

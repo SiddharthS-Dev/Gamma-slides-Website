@@ -1,0 +1,77 @@
+version: "3.9"
+
+services:
+  # ── Reverse proxy + auto-HTTPS ──────────────────────────────────────────────
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+      - presentations:/srv/files:ro       # serve files directly at /files/*
+    depends_on:
+      - frontend
+      - api
+
+  # ── React frontend ───────────────────────────────────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        VITE_API_BASE: ""                 # empty = same origin (Caddy proxies /api)
+    restart: unless-stopped
+    expose:
+      - "80"
+
+  # ── FastAPI backend ──────────────────────────────────────────────────────────
+  api:
+    build: ./backend
+    restart: unless-stopped
+    expose:
+      - "8000"
+    environment:
+      SLIDEVAULT_DATABASE_URL: postgresql+asyncpg://slidevault:${DB_PASSWORD}@db:5432/slidevault
+      SLIDEVAULT_PRESENTATIONS_DIR: /data/presentations
+      SLIDEVAULT_THUMBNAILS_DIR: /data/thumbnails
+      SLIDEVAULT_CACHE_DIR: /data/cache
+      SLIDEVAULT_CORS_ORIGINS: "https://${DOMAIN},http://localhost:5173"
+      SLIDEVAULT_DROPBOX_APP_KEY: ${SLIDEVAULT_DROPBOX_APP_KEY}
+      SLIDEVAULT_DROPBOX_APP_SECRET: ${SLIDEVAULT_DROPBOX_APP_SECRET}
+      SLIDEVAULT_DROPBOX_REFRESH_TOKEN: ${SLIDEVAULT_DROPBOX_REFRESH_TOKEN}
+      SLIDEVAULT_DROPBOX_FOLDER_PATH: ${SLIDEVAULT_DROPBOX_FOLDER_PATH:-/Presentations}
+      SLIDEVAULT_DROPBOX_SYNC_INTERVAL_SECONDS: ${SLIDEVAULT_DROPBOX_SYNC_INTERVAL_SECONDS:-300}
+    volumes:
+      - presentations:/data/presentations
+      - thumbnails:/data/thumbnails
+      - cache:/data/cache
+    depends_on:
+      db:
+        condition: service_healthy
+
+  # ── PostgreSQL ───────────────────────────────────────────────────────────────
+  db:
+    image: postgres:15-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: slidevault
+      POSTGRES_USER: slidevault
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U slidevault"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  pgdata:
+  presentations:
+  thumbnails:
+  cache:
+  caddy_data:
+  caddy_config:
